@@ -57,6 +57,17 @@ Implemented the following Smart Routing Algorithm:
 module Constants =
     let buffer = 10.
     let maxCallsToShiftHorizontalSeg = 5
+    let minWireSeparation = 10.
+
+let printPipe x =
+    printfn "%A" x
+    x
+
+let isWireInNet (model: Model) (wire: Wire) =
+    let nets = partitionWiresIntoNets model
+
+    nets
+    |> List.tryFind (fun (outputPortID, netlist) -> wire.OutputPort = outputPortID && netlist.Length > 1)
 
 //------------------------------------------------------------------------//
 //--------------------------Shifting Vertical Segment---------------------//
@@ -200,6 +211,12 @@ let rec tryShiftHorizontalSeg
         let shiftWireHorizontally firstVerticalSegLength secondVerticalSegLength =
             let newSegments =
                 match wire.Segments.Length with
+                | 5 ->
+                    wire.Segments[..0]
+                    @ [ { wire.Segments[1] with Length = firstVerticalSegLength } ]
+                      @ [ { wire.Segments[2] with Length = wire.Segments[2].Length } ]
+                        @ [ { wire.Segments[3] with Length = secondVerticalSegLength } ]
+                          @ wire.Segments[4..]
                 | 6 ->
                     // Change segments index 1,3. Leave rest as is
                     wire.Segments[..0]
@@ -208,15 +225,12 @@ let rec tryShiftHorizontalSeg
                         @ [ { wire.Segments[3] with Length = secondVerticalSegLength } ]
                           @ wire.Segments[4..]
                 | 7 ->
-                    // Change segments index 1,3,5. Leave rest as is
+                    // Change into a 5 segment wire
                     wire.Segments[..0]
                     @ [ { wire.Segments[1] with Length = firstVerticalSegLength } ]
-                    //   @ [ { wire.Segments[2] with Length = 0. } ]
-                      @ wire.Segments[2..2]
-                        @ [ { wire.Segments[3] with Length = 0. } ]
-                          @ wire.Segments[4..4]
-                            @ [ { wire.Segments[5] with Length = secondVerticalSegLength } ]
-                              @ wire.Segments[6..]
+                      @ [ { wire.Segments[2] with Length = wire.Segments[2].Length + wire.Segments[4].Length } ]
+                        @ [ { wire.Segments[3] with Length = secondVerticalSegLength } ]
+                          @ [ { wire.Segments[6] with Index = 4 } ]
                 | 9 ->
                     // Change segments index 1,3,5,7. Leave rest as is
                     wire.Segments[..0]
@@ -297,12 +311,84 @@ let rec tryShiftHorizontalSeg
             | _distanceFromAbove, _distanceFromBelow (*when _distanceFromAbove <= _distanceFromBelow*)  ->
                 tryShiftHorizontalSeg model upShiftedWireIntersections tryShiftUpWire (callsLeft - 1)
 
+// /// Check if newly routed wire is close to any other wire of different net (below Constants.minWireSeparation).
+// /// If yes, space that segment apart from the other wire.
+// let insertWireSeparation(model: Model) (wire: Wire): Wire option =
+
+let getWireVertices (wire: Wire) =
+    segmentsToIssieVertices wire.Segments wire
+    |> List.map (fun (x, y, _) -> { X = x; Y = y })
+
+let snapToNet (model: Model) (wire: Wire) : Wire =
+    match isWireInNet model wire with
+    | None -> wire
+    | Some(outputPortID, netlist) ->
+        let otherWiresInNet = netlist |> List.filter (fun (connID, _) -> connID <> wire.WId)
+
+        let refWire = otherWiresInNet.Head |> snd
+
+        let refWireVertices = getWireVertices refWire
+        let currentWireVertices = getWireVertices wire
+
+        let wireVertices =
+            segmentsToIssieVertices wire.Segments wire
+            |> List.map (fun (x, y, _) -> { X = x; Y = y })
+
+        let currentStartPos, currentEndPos = getStartAndEndWirePos wire
+        let refStartPos, refEndPos = getStartAndEndWirePos refWire
+        // let secondParallelPos = if refWire.Segments.Length = 5 then refWireVertices[3] else refWireVertices[5] // start of XYPos where wires separate for 5 seg wires
+        let secondParallelPos = refWireVertices[3] // start of XYPos where wires separate for 5 seg wires
+
+        let newSegments =
+            match currentEndPos.Y < refEndPos.Y with
+            | false ->
+                match currentEndPos.X > secondParallelPos.X with
+                | true ->
+                    refWire.Segments[..2]
+                    @ [ { wire.Segments[3] with Length = currentEndPos.Y - secondParallelPos.Y } ]
+                      @ [ { wire.Segments[4] with Length = currentEndPos.X - secondParallelPos.X } ]
+                        @ [ { wire.Segments[3] with
+                                Index = 5
+                                Length = 0. } ]
+                          @ [ { wire.Segments[4] with
+                                  Index = 6
+                                  Length = nubLength } ]
+                | false ->
+                    refWire.Segments[..1]
+                    @ [ { wire.Segments[2] with Length = currentEndPos.X - currentStartPos.X - nubLength } ]
+                      @ [ { wire.Segments[3] with Length = currentEndPos.Y - secondParallelPos.Y } ]
+                        @ [ { wire.Segments[4] with
+                                Index = 4
+                                Length = 0. } ]
+                          @ [ { wire.Segments[3] with
+                                  Index = 5
+                                  Length = 0. } ]
+                            @ [ { wire.Segments[4] with
+                                    Index = 6
+                                    Length = nubLength } ]
+            | true ->
+                refWire.Segments[..0]
+                @ [ { wire.Segments[1] with Length = currentEndPos.Y - currentStartPos.Y } ]
+                  @ [ { wire.Segments[2] with Length = currentEndPos.X - currentStartPos.X - nubLength } ]
+                    @ [ { wire.Segments[3] with Length = 0. } ]
+                      @ [ { wire.Segments[4] with
+                              Index = 4
+                              Length = 0. } ]
+                        @ [ { wire.Segments[3] with
+                                Index = 5
+                                Length = 0. } ]
+                          @ [ { wire.Segments[4] with
+                                  Index = 6
+                                  Length = nubLength } ]
+
+        { wire with Segments = newSegments }
+
 
 /// top-level function which replaces autoupdate and implements a smarter version of same
 /// it is called every time a new wire is created, so is easily tested.
 let smartAutoroute (model: Model) (wire: Wire) : Wire =
 
-    let initialWire = autoroute model wire
+    let initialWire = (autoroute model wire) |> snapToNet model
 
     let intersectedBoxes = findWireSymbolIntersections model initialWire
 
