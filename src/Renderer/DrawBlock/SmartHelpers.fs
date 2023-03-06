@@ -145,43 +145,11 @@ let getWiresInBox (box: BoundingBox) (model: Model): Wire list =
         state || overlap2D (startPos, endPos) (box.TopLeft, bottomRight)
     List.filter (foldOverNonZeroSegs checkOverlapFolder false) wires
 
-/// Takes in ComponentId and returns the bounding box of the corresponding symbol
-/// HLP23: AUTHOR Jian Fu Eng (jfe20)
-let getSymbolBoundingBox (model: Model) (componentId: ComponentId) : BoundingBox =
-    let symbol = model.Symbol.Symbols[componentId]
-
-    let symbolHeight =
-        match symbol.VScale with
-        | Some vScale -> symbol.Component.H * vScale
-        | None -> symbol.Component.H
-
-    let symbolWidth =
-        match symbol.HScale with
-        | Some hScale -> symbol.Component.W * hScale
-        | None -> symbol.Component.W
-
-    match symbol.STransform.Rotation with
-    | Degree0
-    | Degree180 ->
-        { H = symbolHeight
-          W = symbolWidth
-          TopLeft = symbol.Pos }
-    | _ ->
-        { H = symbolWidth
-          W = symbolHeight
-          TopLeft = symbol.Pos }
-
-/// Returns a list of the bounding boxes of all symbols in current sheet.
-/// HLP23: AUTHOR Jian Fu Eng (jfe20)
-let getAllSymbolBoundingBoxes (model: Model) : BoundingBox list =
-    let componentIDs = model.Symbol.Symbols.Keys |> List.ofSeq
-    componentIDs |> List.map (getSymbolBoundingBox model)
-
 /// Checks if a wire intersects any symbol or not.
 /// Returns list of bounding boxes of symbols intersected by wire.
 /// HLP23: AUTHOR Jian Fu Eng (jfe20)
-let findWireSymbolIntersections (model: Model) (wire: Wire) : BoundingBox list =
-    let allSymbolBoundingBoxes = getAllSymbolBoundingBoxes model
+let findWireSymbolIntersections (model: Model) (wire: Wire) : (ComponentId * BoundingBox) list =
+    let allSymbolBoundingBoxes = Symbol.getBoundingBoxes model.Symbol
 
     let wireVertices =
         segmentsToIssieVertices wire.Segments wire
@@ -189,19 +157,17 @@ let findWireSymbolIntersections (model: Model) (wire: Wire) : BoundingBox list =
 
     let segVertices = List.pairwise wireVertices[1 .. wireVertices.Length - 2] // do not consider the nubs
 
-    let numBoxesIntersectedBySegment startPos endPos =
+    let boxesIntersectedBySegment startPos endPos =
         allSymbolBoundingBoxes
-        |> List.mapi (fun i boundingBox ->
+        |> Map.filter (fun compID boundingBox ->
             match segmentIntersectsBoundingBox boundingBox startPos endPos with
-            | Some _ -> Some boundingBox // segment intersects bounding box
-            | None -> None // no intersection
+            | Some _ -> true // segment intersects bounding box
+            | None -> false // no intersection
         )
-        |> List.distinct
-        |> List.filter (fun x -> x <> None)
-        |> List.map (Option.get)
+        |> Map.toList
 
     segVertices
-    |> List.collect (fun (startPos, endPos) -> numBoxesIntersectedBySegment startPos endPos)
+    |> List.collect (fun (startPos, endPos) -> boxesIntersectedBySegment startPos endPos)
     |> List.distinct
 
 /// Get the start and end positions of a wire.

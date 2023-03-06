@@ -64,7 +64,7 @@ module Constants =
 
 /// Try shifting vertical seg to either - buffer or + buffer of intersected symbols.
 /// Returns None if no route found.
-let tryShiftVerticalSeg (model: Model) (intersectedBoxes: BoundingBox list) (wire: Wire) : Wire option =
+let tryShiftVerticalSeg (model: Model) (intersectedBoxes: (ComponentId * BoundingBox) list) (wire: Wire) : Wire option =
     let wireVertices =
         segmentsToIssieVertices wire.Segments wire
         |> List.map (fun (x, y, _) -> { X = x; Y = y })
@@ -89,7 +89,7 @@ let tryShiftVerticalSeg (model: Model) (intersectedBoxes: BoundingBox list) (wir
     let tryShiftLeftWire =
         let leftBound =
             intersectedBoxes
-            |> List.map (fun box ->
+            |> List.map (fun (_compID, box) ->
                 match wire.InitialOrientation with
                 | Horizontal -> box.TopLeft.X
                 | Vertical -> box.TopLeft.Y)
@@ -101,7 +101,7 @@ let tryShiftVerticalSeg (model: Model) (intersectedBoxes: BoundingBox list) (wir
     let tryShiftRightWire =
         let rightBound =
             intersectedBoxes
-            |> List.map (fun box ->
+            |> List.map (fun (_compID, box) ->
                 match wire.InitialOrientation with
                 | Horizontal -> box.TopLeft.X + box.W
                 | Vertical -> box.TopLeft.Y + box.H)
@@ -133,7 +133,7 @@ type VertDistFromBoundingBox =
 /// If yes, returns a tuple of form:
 /// distance between pos and the furthest box above, distance between pos and the furthest box below
 let isBoundingBoxAboveOrBelowPos
-    (intersectedBoxes: BoundingBox list)
+    (intersectedBoxes: (ComponentId * BoundingBox) list)
     (pos: XYPos)
     (wireOrientation: Orientation)
     : float * float =
@@ -159,7 +159,7 @@ let isBoundingBoxAboveOrBelowPos
 
     let verticalDistances =
         intersectedBoxes
-        |> List.map (getVertDistanceToBox pos)
+        |> List.map (fun (_compID, box) -> getVertDistanceToBox pos box)
         |> List.filter (fun x -> x <> None)
         |> List.map (Option.get)
 
@@ -188,7 +188,7 @@ let isBoundingBoxAboveOrBelowPos
 /// Returns None if no route found
 let rec tryShiftHorizontalSeg
     (model: Model)
-    (intersectedBoxes: BoundingBox list)
+    (intersectedBoxes: (ComponentId * BoundingBox) list)
     (wire: Wire)
     (callsLeft: int)
     : Wire option =
@@ -234,7 +234,7 @@ let rec tryShiftHorizontalSeg
         let tryShiftUpWire =
             let topBound =
                 intersectedBoxes
-                |> List.map (fun box ->
+                |> List.map (fun (_compID, box) ->
                     match wire.InitialOrientation with
                     | Horizontal -> box.TopLeft.Y
                     | Vertical -> box.TopLeft.X)
@@ -252,7 +252,7 @@ let rec tryShiftHorizontalSeg
         let tryShiftDownWire =
             let bottomBound =
                 intersectedBoxes
-                |> List.map (fun box ->
+                |> List.map (fun (_compID, box) ->
                     match wire.InitialOrientation with
                     | Horizontal -> box.TopLeft.Y + box.H
                     | Vertical -> box.TopLeft.X + box.W)
