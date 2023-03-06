@@ -8,6 +8,7 @@ open DrawModelType.BusWireT
 open Symbol
 open BusWire
 open BusWireUpdateHelpers
+open SymbolHelpers
 
 open Optics
 open Operators
@@ -102,20 +103,20 @@ let updateModelWires (model: BusWireT.Model) (wiresToAdd: Wire list) : BusWireT.
 
 
 /// Returns true if two 1D line segments intersect
-/// HLP23: Derek Lai
+/// HLP23: Derek Lai (ddl20)
 let overlap1D ((a1, a2): float * float) ((b1, b2): float * float): bool =
     let a_min, a_max = min a1 a2, max a1 a2
     let b_min, b_max = min b1 b2, max b1 b2
     a_max >= b_min && b_max >= a_min
 
 /// Returns true if two Boxes intersect, where each box is passed in as top right and bottom left XYPos tuples
-/// HLP23: Derek Lai
+/// HLP23: Derek Lai (ddl20)
 let overlap2D ((a1, a2): XYPos * XYPos) ((b1, b2): XYPos * XYPos): bool =
     (overlap1D (a1.X, a2.X) (b1.X, b2.X)) &&
     (overlap1D (a1.Y, a2.Y) (b1.Y, b2.Y))
 
 /// Returns true if two Boxes intersect, where each box is passed in as a BoundingBox
-/// HLP23: Derek Lai
+/// HLP23: Derek Lai (ddl20)
 let overlap2DBox (bb1: BoundingBox) (bb2: BoundingBox): bool =
     let bb1Coords =
         { X = bb1.TopLeft.X; Y = bb1.TopLeft.Y },
@@ -126,29 +127,23 @@ let overlap2DBox (bb1: BoundingBox) (bb2: BoundingBox): bool =
     overlap2D bb1Coords bb2Coords
 
 /// Retrieves XYPos of every vertex in a wire
-/// HLP23: Derek Lai
+/// HLP23: Derek Lai (ddl20)
 let getWireSegmentsXY (wire: Wire) =
     let tupToXY (l: (float * float)): XYPos =
         {X = fst l; Y = snd l}
     segmentsToIssieVertices wire.Segments wire
     |> List.map (fun (x, y, _) -> (x, y))
-    |> List.map tupToXY    
+    |> List.map tupToXY
 
-/// Retrieves all wireId's which have N segments and intersect an arbitrary bounding box
-/// HLP23: Derek Lai
-let getNSegmentWiresInBox (n: int) (box: BoundingBox) (model: Model): ConnectionId list =
+/// Retrieves all wires which intersect an arbitrary bounding box
+/// HLP23: Derek Lai (ddl20)
+let getWiresInBox (box: BoundingBox) (model: Model): Wire list =
     let wires = (List.ofSeq (Seq.cast model.Wires.Values))
-    let is7Seg (wire: Wire): bool =
-        wire.Segments.Length = n
-    let wireCoordList =
-        List.filter is7Seg wires
-        |> List.map (fun w -> getWireSegmentsXY w, w.WId)
-        |> List.map (fun (posL, wid) -> (posL[3], posL[4]), wid)
     let bottomRight =
         { box.TopLeft with X = box.TopLeft.X + box.W; Y = box.TopLeft.Y + box.H }
-    List.filter (fun x -> overlap2D (box.TopLeft, bottomRight) (fst x)) wireCoordList
-    |> List.map snd
-
+    let checkOverlapFolder (startPos: XYPos) (endPos: XYPos) (state: bool) (segment: Segment): bool =
+        state || overlap2D (startPos, endPos) (box.TopLeft, bottomRight)
+    List.filter (foldOverNonZeroSegs checkOverlapFolder false) wires
 
 /// Takes in ComponentId and returns the bounding box of the corresponding symbol
 /// HLP23: AUTHOR Jian Fu Eng (jfe20)
@@ -166,8 +161,15 @@ let getSymbolBoundingBox (model: Model) (componentId: ComponentId) : BoundingBox
         | None -> symbol.Component.W
 
     match symbol.STransform.Rotation with
-    | Degree0 | Degree180 -> { H = symbolHeight; W = symbolWidth; TopLeft = symbol.Pos }
-    | _ -> { H = symbolWidth; W = symbolHeight; TopLeft = symbol.Pos }
+    | Degree0
+    | Degree180 ->
+        { H = symbolHeight
+          W = symbolWidth
+          TopLeft = symbol.Pos }
+    | _ ->
+        { H = symbolWidth
+          W = symbolHeight
+          TopLeft = symbol.Pos }
 
 /// Returns a list of the bounding boxes of all symbols in current sheet.
 /// HLP23: AUTHOR Jian Fu Eng (jfe20)
@@ -243,18 +245,31 @@ let getConnBtwnSyms (wModel: BusWireT.Model) (symbolA: Symbol) (symbolB: Symbol)
     |> Map.toList
     |> List.map snd
 
+/// Filters Ports by Symbol.
+/// HLP23: AUTHOR dgs119
+let fiterPortBySym (ports: Port list) (symbol: Symbol) =
+    ports |> List.filter (fun port -> ComponentId port.HostId = symbol.Id)
+
+/// Gets Ports From a List of Wires.
+/// HLP23: AUTHOR dgs119
+let getPortsFrmWires (model: BusWireT.Model) (wires: Wire list) =
+    wires
+    |> List.map (fun wire ->
+        [ getPort model.Symbol (getInputPortIdStr wire.InputPort)
+          getPort model.Symbol (getOutputPortIdStr wire.OutputPort) ])
+    |> List.concat
+
 /// Gets port info from wires that are connected to two given symbols.
 /// HLP23: AUTHOR dgs119
 let getPortsBtwnSyms (model: BusWireT.Model) (symToOrder: Symbol) (otherSym: Symbol) =
-    let ports =
-        getConnBtwnSyms model symToOrder otherSym
-        |> List.map (fun wire ->
-            [ getPort model.Symbol (getInputPortIdStr wire.InputPort)
-              getPort model.Symbol (getOutputPortIdStr wire.OutputPort) ])
-        |> List.concat
+    let ports = getConnBtwnSyms model symToOrder otherSym |> getPortsFrmWires model
 
-    let fiterPortInfoBySym (symbol: Symbol) =
-        ports |> List.filter (fun port -> ComponentId port.HostId = symbol.Id)
+    (fiterPortBySym ports symToOrder, fiterPortBySym ports otherSym)
 
-    (fiterPortInfoBySym symToOrder, fiterPortInfoBySym otherSym)
 
+/// Scales a symbol so it has the provided height and width
+/// HLP23: AUTHOR BRYAN TAN
+let setCustomCompHW (h: float) (w: float) (sym: Symbol) = 
+    let hScale = w / sym.Component.W
+    let vScale = h / sym.Component.H
+    {sym with HScale=Some hScale; VScale=Some vScale}

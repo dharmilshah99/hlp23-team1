@@ -673,6 +673,7 @@ let createNewSymbol (ldcs: LoadedComponent list) (pos: XYPos) (comptype: Compone
           {
             HighlightLabel = false
             ShowPorts = ShowNone
+            ShowCorners = DontShow // HLP23 AUTHOR: BRYAN TAN
             Colour = getSymbolColour comptype (isClocked [] ldcs comp) theme
             Opacity = 1.0
           }
@@ -841,6 +842,7 @@ let inline getOutputPortIdStr (portId: OutputPortId) =
     match portId with
     | OutputPortId s -> s
 
+/// HLP23: AUTHOR dgs119
 let inline getPortOrientationFrmPortIdStr (model: Model) (portIdStr: string) : Edge = 
     let port = model.Ports[portIdStr]
     let sId = ComponentId port.HostId
