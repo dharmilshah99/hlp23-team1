@@ -277,6 +277,11 @@ let rec tryShiftHorizontalSeg
         // If newly generated wire has no intersections, return that
         // Otherwise, decide to shift up or down based on which is closer
         match upShiftedWireIntersections, downShiftedWireIntersections with
+        | [], [] ->
+            if getWireLength tryShiftDownWire < getWireLength tryShiftUpWire then
+                Some tryShiftDownWire
+            else
+                Some tryShiftUpWire
         | [], _ -> Some tryShiftUpWire
         | _, [] -> Some tryShiftDownWire
         | _, _ ->

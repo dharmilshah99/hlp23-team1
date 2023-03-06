@@ -214,6 +214,11 @@ let getStartAndEndWirePos (wire: Wire) : XYPos * XYPos =
 
     currentStartPos, currentEndPos
 
+/// Returns length of wire
+/// HLP23: AUTHOR Jian Fu Eng (jfe20)
+let getWireLength (wire: Wire) : float =
+    (0., wire.Segments) ||> List.fold(fun acc seg -> acc + (abs seg.Length))
+
 /// Checks if a port is part of a Symbol.
 /// HLP23: AUTHOR dgs119
 let isPortInSymbol (portId: string) (symbol: Symbol) : bool =
