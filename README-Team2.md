@@ -40,7 +40,7 @@ Dharmil Shah (dgs119)
     - Adds helper `getPortOrientationFrmPortIdStr`.
 
 
-# Smart Custom Symbol Sizing 
+# Smart Wire Autoroute
 Jian Fu Eng (jfe20)
 
 ## Smart Routing Algorithm:
