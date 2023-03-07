@@ -59,16 +59,6 @@ module Constants =
     let maxCallsToShiftHorizontalSeg = 5
     let minWireSeparation = 10.
 
-let printPipe x =
-    printfn "%A" x
-    x
-
-let isWireInNet (model: Model) (wire: Wire) =
-    let nets = partitionWiresIntoNets model
-
-    nets
-    |> List.tryFind (fun (outputPortID, netlist) -> wire.OutputPort = outputPortID && netlist.Length > 1)
-
 //------------------------------------------------------------------------//
 //--------------------------Shifting Vertical Segment---------------------//
 //------------------------------------------------------------------------//
@@ -311,77 +301,99 @@ let rec tryShiftHorizontalSeg
             | _distanceFromAbove, _distanceFromBelow (*when _distanceFromAbove <= _distanceFromBelow*)  ->
                 tryShiftHorizontalSeg model upShiftedWireIntersections tryShiftUpWire (callsLeft - 1)
 
-// /// Check if newly routed wire is close to any other wire of different net (below Constants.minWireSeparation).
-// /// If yes, space that segment apart from the other wire.
-// let insertWireSeparation(model: Model) (wire: Wire): Wire option =
+//------------------------------------------------------------------------//
+//-------------------------------Snapping to Net--------------------------//
+//------------------------------------------------------------------------//
 
 let getWireVertices (wire: Wire) =
     segmentsToIssieVertices wire.Segments wire
     |> List.map (fun (x, y, _) -> { X = x; Y = y })
 
-let snapToNet (model: Model) (wire: Wire) : Wire =
-    match isWireInNet model wire with
-    | None -> wire
-    | Some(outputPortID, netlist) ->
-        let otherWiresInNet = netlist |> List.filter (fun (connID, _) -> connID <> wire.WId)
+let copySegments (wire: Wire) (refWire: Wire) (numOfSegsToCopy: int) =
+    [ 0 .. numOfSegsToCopy - 1 ]
+    |> List.map (fun i -> { wire.Segments[i] with Length = refWire.Segments[i].Length })
 
+let snapToNet (model: Model) (wireToRoute: Wire) : Wire =
+    match isWireInNet model wireToRoute, wireToRoute.Segments.Length with
+    | None, _ -> wireToRoute // If wire is not in net, return original wire
+    | _, n when n <> 5 && n <> 7 -> wireToRoute // If wire is not 5 or 7 seg, return original wire
+    | Some(_, netlist), _ ->
+        let otherWiresInNet =
+            netlist |> List.filter (fun (connID, _) -> connID <> wireToRoute.WId)
+        // Take first wire in netlist as reference wire for snapping
         let refWire = otherWiresInNet.Head |> snd
-
         let refWireVertices = getWireVertices refWire
-        let currentWireVertices = getWireVertices wire
 
-        let wireVertices =
-            segmentsToIssieVertices wire.Segments wire
-            |> List.map (fun (x, y, _) -> { X = x; Y = y })
-
-        let currentStartPos, currentEndPos = getStartAndEndWirePos wire
+        let wireToRouteStartPos, wireToRouteEndPos = getStartAndEndWirePos wireToRoute
         let refStartPos, refEndPos = getStartAndEndWirePos refWire
-        // let secondParallelPos = if refWire.Segments.Length = 5 then refWireVertices[3] else refWireVertices[5] // start of XYPos where wires separate for 5 seg wires
-        let secondParallelPos = refWireVertices[3] // start of XYPos where wires separate for 5 seg wires
+
+        let firstBendPos = refWireVertices[3]
+        let horizontalSegLength = refWire.Segments[2].Length
+
+        let isHorizontalSegTooShort =
+            (wireToRouteEndPos.X - wireToRouteStartPos.X) < horizontalSegLength / 2.
+
+        let numOfSegsToCopy =
+            match refWire.Segments.Length with
+            | 5 ->
+                match firstBendPos.Y < refEndPos.Y, firstBendPos.Y > wireToRouteEndPos.Y with
+                | true, true -> if wireToRouteEndPos.X < firstBendPos.X then 2 else 3
+                | false, false -> if wireToRouteEndPos.X < firstBendPos.X then 1 else 2
+                | _ ->
+                    match wireToRouteEndPos.X < firstBendPos.X, isHorizontalSegTooShort with
+                    | true, true -> 1
+                    | true, false -> 2
+                    | false, _ -> 3
+            | 7 ->
+                match wireToRouteEndPos.X < firstBendPos.X, isHorizontalSegTooShort with
+                | _, true -> 1
+                | true, false -> 2
+                | false, false -> 3
+            | _ -> 0 // Not implemented for ref wires that are not 5 or 7 seg
 
         let newSegments =
-            match currentEndPos.Y < refEndPos.Y with
-            | false ->
-                match currentEndPos.X > secondParallelPos.X with
-                | true ->
-                    refWire.Segments[..2]
-                    @ [ { wire.Segments[3] with Length = currentEndPos.Y - secondParallelPos.Y } ]
-                      @ [ { wire.Segments[4] with Length = currentEndPos.X - secondParallelPos.X } ]
-                        @ [ { wire.Segments[3] with
-                                Index = 5
-                                Length = 0. } ]
-                          @ [ { wire.Segments[4] with
-                                  Index = 6
-                                  Length = nubLength } ]
-                | false ->
-                    refWire.Segments[..1]
-                    @ [ { wire.Segments[2] with Length = currentEndPos.X - currentStartPos.X - nubLength } ]
-                      @ [ { wire.Segments[3] with Length = currentEndPos.Y - secondParallelPos.Y } ]
-                        @ [ { wire.Segments[4] with
-                                Index = 4
-                                Length = 0. } ]
-                          @ [ { wire.Segments[3] with
-                                  Index = 5
-                                  Length = 0. } ]
-                            @ [ { wire.Segments[4] with
-                                    Index = 6
-                                    Length = nubLength } ]
-            | true ->
-                refWire.Segments[..0]
-                @ [ { wire.Segments[1] with Length = currentEndPos.Y - currentStartPos.Y } ]
-                  @ [ { wire.Segments[2] with Length = currentEndPos.X - currentStartPos.X - nubLength } ]
-                    @ [ { wire.Segments[3] with Length = 0. } ]
-                      @ [ { wire.Segments[4] with
+            match numOfSegsToCopy with
+            | 3 ->
+                copySegments wireToRoute refWire 3
+                @ [ { wireToRoute.Segments[3] with Length = wireToRouteEndPos.Y - firstBendPos.Y } ]
+                  @ [ { wireToRoute.Segments[4] with Length = wireToRouteEndPos.X - firstBendPos.X } ]
+                    @ [ { wireToRoute.Segments[3] with
+                            Index = 5
+                            Length = 0. } ]
+                      @ [ { wireToRoute.Segments[4] with
+                              Index = 6
+                              Length = nubLength } ]
+            | 2 ->
+                copySegments wireToRoute refWire 2
+                @ [ { wireToRoute.Segments[2] with Length = wireToRouteEndPos.X - wireToRouteStartPos.X - nubLength } ]
+                  @ [ { wireToRoute.Segments[3] with Length = wireToRouteEndPos.Y - firstBendPos.Y } ]
+                    @ [ { wireToRoute.Segments[4] with
+                            Index = 4
+                            Length = 0. } ]
+                      @ [ { wireToRoute.Segments[3] with
+                              Index = 5
+                              Length = 0. } ]
+                        @ [ { wireToRoute.Segments[4] with
+                                Index = 6
+                                Length = nubLength } ]
+            | 1 ->
+                copySegments wireToRoute refWire 1
+                @ [ { wireToRoute.Segments[1] with Length = wireToRouteEndPos.Y - wireToRouteStartPos.Y } ]
+                  @ [ { wireToRoute.Segments[2] with Length = wireToRouteEndPos.X - wireToRouteStartPos.X - nubLength } ]
+                    @ [ { wireToRoute.Segments[3] with Length = 0. } ]
+                      @ [ { wireToRoute.Segments[4] with
                               Index = 4
                               Length = 0. } ]
-                        @ [ { wire.Segments[3] with
+                        @ [ { wireToRoute.Segments[3] with
                                 Index = 5
                                 Length = 0. } ]
-                          @ [ { wire.Segments[4] with
+                          @ [ { wireToRoute.Segments[4] with
                                   Index = 6
                                   Length = nubLength } ]
+            | 0 -> wireToRoute.Segments // Not implemented for ref wires that are not 5 or 7 seg
+            | _ -> failwithf "Shouldn't happen"
 
-        { wire with Segments = newSegments }
+        { wireToRoute with Segments = newSegments }
 
 
 /// top-level function which replaces autoupdate and implements a smarter version of same
