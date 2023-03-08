@@ -181,6 +181,33 @@ let isBoundingBoxAboveOrBelowPos
 
     largestDistance verticalDistances (0., 0.)
 
+type DirectionToMove =
+    | Up_
+    | Down_
+    | Left_
+    | Right_
+
+let updatePos (pos: XYPos) (direction: DirectionToMove) (distanceToShift: float) : XYPos =
+    match direction with
+    | Up_ -> { pos with Y = pos.Y - distanceToShift }
+    | Down_ -> { pos with Y = pos.Y + distanceToShift }
+    | Left_ -> { pos with X = pos.X - distanceToShift }
+    | Right_ -> { pos with X = pos.X + distanceToShift }
+
+let rec findMinWireSeparation (model: Model) (pos: XYPos) (wire: Wire) (direction: DirectionToMove) =
+    let box =
+        { TopLeft = updatePos pos direction (Constants.minWireSeparation / 2.)
+          W = Constants.minWireSeparation * 2.
+          H = Constants.minWireSeparation * 2. }
+
+    let intersectingWires = getWiresInBox box model
+
+    match intersectingWires with
+    | [] -> pos
+    | [ w ] when w.WId = wire.WId -> pos
+    | _ ->
+        let newPos = updatePos pos direction Constants.minWireSeparation
+        findMinWireSeparation model newPos wire direction
 
 /// Recursively shift horizontal seg up/down until no symbol intersections.
 /// Limit in recursion depth defined by argument callsLeft given to initial function call.
@@ -240,22 +267,29 @@ let rec tryShiftHorizontalSeg
                 intersectedBoxes
                 |> List.sortWith (fun (_, box1) (_, box2) ->
                     match wire.InitialOrientation with
-                    | Horizontal -> box1.TopLeft.Y.CompareTo box2.TopLeft.Y
-                    | Vertical -> box1.TopLeft.X.CompareTo box2.TopLeft.X)
+                    | Horizontal -> compare box1.TopLeft.Y box2.TopLeft.Y
+                    | Vertical -> compare box1.TopLeft.X box2.TopLeft.X)
                 |> List.head
                 |> snd
 
             let topBound =
+                let viablePos =
+                    match wire.InitialOrientation with
+                    | Horizontal ->
+                        let initialAttemptPos = updatePos topBoundBox.TopLeft Up_ Constants.buffer
+                        findMinWireSeparation model initialAttemptPos wire Up_
+                    | Vertical ->
+                        let initialAttemptPos = updatePos topBoundBox.TopLeft Left_ Constants.buffer
+                        findMinWireSeparation model initialAttemptPos wire Left_
+
                 match wire.InitialOrientation with
-                | Horizontal -> topBoundBox.TopLeft.Y
-                | Vertical -> topBoundBox.TopLeft.X
+                | Horizontal -> viablePos.Y
+                | Vertical -> viablePos.X
 
             let firstVerticalSegLength, secondVerticalSegLength =
                 match wire.InitialOrientation with
-                | Horizontal ->
-                    topBound - Constants.buffer - currentStartPos.Y, currentEndPos.Y - (topBound - Constants.buffer)
-                | Vertical ->
-                    topBound - Constants.buffer - currentStartPos.X, currentEndPos.X - (topBound - Constants.buffer)
+                | Horizontal -> topBound - currentStartPos.Y, currentEndPos.Y - (topBound)
+                | Vertical -> topBound - currentStartPos.X, currentEndPos.X - (topBound)
 
             shiftWireHorizontally firstVerticalSegLength secondVerticalSegLength
 
@@ -264,8 +298,8 @@ let rec tryShiftHorizontalSeg
                 intersectedBoxes
                 |> List.sortWith (fun (_, box1) (_, box2) ->
                     match wire.InitialOrientation with
-                    | Horizontal -> (box1.TopLeft.Y + box1.H).CompareTo (box2.TopLeft.Y + box2.H)
-                    | Vertical -> (box1.TopLeft.X + box1.W).CompareTo (box2.TopLeft.X + box2.W))
+                    | Horizontal -> compare (box1.TopLeft.Y + box1.H) (box2.TopLeft.Y + box2.H)
+                    | Vertical -> compare (box1.TopLeft.X + box1.W) (box2.TopLeft.X + box2.W))
                 |> List.rev
                 |> List.head
                 |> snd
