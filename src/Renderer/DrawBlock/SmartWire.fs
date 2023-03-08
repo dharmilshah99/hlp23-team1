@@ -236,13 +236,19 @@ let rec tryShiftHorizontalSeg
             { wire with Segments = newSegments }
 
         let tryShiftUpWire =
-            let topBound =
+            let topBoundBox =
                 intersectedBoxes
-                |> List.map (fun (_compID, box) ->
+                |> List.sortWith (fun (_, box1) (_, box2) ->
                     match wire.InitialOrientation with
-                    | Horizontal -> box.TopLeft.Y
-                    | Vertical -> box.TopLeft.X)
-                |> List.min
+                    | Horizontal -> box1.TopLeft.Y.CompareTo box2.TopLeft.Y
+                    | Vertical -> box1.TopLeft.X.CompareTo box2.TopLeft.X)
+                |> List.head
+                |> snd
+
+            let topBound =
+                match wire.InitialOrientation with
+                | Horizontal -> topBoundBox.TopLeft.Y
+                | Vertical -> topBoundBox.TopLeft.X
 
             let firstVerticalSegLength, secondVerticalSegLength =
                 match wire.InitialOrientation with
@@ -254,13 +260,20 @@ let rec tryShiftHorizontalSeg
             shiftWireHorizontally firstVerticalSegLength secondVerticalSegLength
 
         let tryShiftDownWire =
-            let bottomBound =
+            let bottomBoundBox =
                 intersectedBoxes
-                |> List.map (fun (_compID, box) ->
+                |> List.sortWith (fun (_, box1) (_, box2) ->
                     match wire.InitialOrientation with
-                    | Horizontal -> box.TopLeft.Y + box.H
-                    | Vertical -> box.TopLeft.X + box.W)
-                |> List.max
+                    | Horizontal -> (box1.TopLeft.Y + box1.H).CompareTo (box2.TopLeft.Y + box2.H)
+                    | Vertical -> (box1.TopLeft.X + box1.W).CompareTo (box2.TopLeft.X + box2.W))
+                |> List.rev
+                |> List.head
+                |> snd
+
+            let bottomBound =
+                match wire.InitialOrientation with
+                | Horizontal -> bottomBoundBox.TopLeft.Y + bottomBoundBox.H
+                | Vertical -> bottomBoundBox.TopLeft.X + bottomBoundBox.W
 
             let firstVerticalSegLength, secondVerticalSegLength =
                 match wire.InitialOrientation with
@@ -302,7 +315,7 @@ let rec tryShiftHorizontalSeg
                 tryShiftHorizontalSeg model upShiftedWireIntersections tryShiftUpWire (callsLeft - 1)
 
 //------------------------------------------------------------------------//
-//-------------------------------Snapping to Net--------------------------//
+//-----------------------------Snapping to Net----------------------------//
 //------------------------------------------------------------------------//
 
 let getWireVertices (wire: Wire) =
@@ -318,14 +331,12 @@ let snapToNet (model: Model) (wireToRoute: Wire) : Wire =
     | None, _ -> wireToRoute // If wire is not in net, return original wire
     | _, n when n <> 5 && n <> 7 -> wireToRoute // If wire is not 5 or 7 seg, return original wire
     | Some(_, netlist), _ ->
-        let otherWiresInNet =
-            netlist |> List.filter (fun (connID, _) -> connID <> wireToRoute.WId)
         // Take first wire in netlist as reference wire for snapping
-        let refWire = otherWiresInNet.Head |> snd
+        let refWire = netlist.Head |> snd
         let refWireVertices = getWireVertices refWire
 
         let wireToRouteStartPos, wireToRouteEndPos = getStartAndEndWirePos wireToRoute
-        let refStartPos, refEndPos = getStartAndEndWirePos refWire
+        let _, refEndPos = getStartAndEndWirePos refWire
 
         let firstBendPos = refWireVertices[3]
         let horizontalSegLength = refWire.Segments[2].Length
@@ -399,7 +410,7 @@ let snapToNet (model: Model) (wireToRoute: Wire) : Wire =
 /// it is called every time a new wire is created, so is easily tested.
 let smartAutoroute (model: Model) (wire: Wire) : Wire =
 
-    let initialWire = (autoroute model wire)
+    let initialWire = autoroute model wire
 
     // Snapping to Net only implemented for one orientation
     let snappedToNetWire =
