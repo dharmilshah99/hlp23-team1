@@ -334,21 +334,20 @@ let snapToNet (model: Model) (wireToRoute: Wire) : Wire =
             (wireToRouteEndPos.X - wireToRouteStartPos.X) < horizontalSegLength / 2.
 
         let numOfSegsToCopy =
+
+            let simpleCase =
+                match wireToRouteEndPos.X < firstBendPos.X, isHorizontalSegTooShort with
+                | true, true -> 1
+                | true, false -> 2
+                | false, _ -> 3
+
             match refWire.Segments.Length with
             | 5 ->
                 match firstBendPos.Y < refEndPos.Y, firstBendPos.Y > wireToRouteEndPos.Y with
-                | true, true -> if wireToRouteEndPos.X < firstBendPos.X then 2 else 3
-                | false, false -> if wireToRouteEndPos.X < firstBendPos.X then 1 else 2
-                | _ ->
-                    match wireToRouteEndPos.X < firstBendPos.X, isHorizontalSegTooShort with
-                    | true, true -> 1
-                    | true, false -> 2
-                    | false, _ -> 3
-            | 7 ->
-                match wireToRouteEndPos.X < firstBendPos.X, isHorizontalSegTooShort with
-                | _, true -> 1
-                | true, false -> 2
-                | false, false -> 3
+                | (true, true)
+                | (false, false) -> if wireToRouteEndPos.X < firstBendPos.X then 2 else 3
+                | _ -> simpleCase
+            | 7 -> simpleCase
             | _ -> 0 // Not implemented for ref wires that are not 5 or 7 seg
 
         let newSegments =
