@@ -545,6 +545,7 @@ module SheetT =
         | TestSmartChannel
         | TestPortPosition
         | ToggleSnapToNet
+        | BeautifySheet
 
 
     type ReadLog = | ReadLog of int

@@ -204,7 +204,7 @@ let rec findMinWireSeparation (model: Model) (pos: XYPos) (wire: Wire) (directio
 
     match intersectingWires with
     | [] -> pos
-    | [ w ] when w.WId = wire.WId -> pos
+    | [ (w, _) ] when w.WId = wire.WId -> pos
     | _ ->
         let newPos = updatePos pos direction Constants.minWireSeparation
         findMinWireSeparation model newPos wire direction
@@ -444,7 +444,13 @@ let snapToNet (model: Model) (wireToRoute: Wire) : Wire =
 /// it is called every time a new wire is created, so is easily tested.
 let smartAutoroute (model: Model) (wire: Wire) : Wire =
 
-    let initialWire = autoroute model wire
+    let initialWire = (autoroute model wire)
+
+    // Snapping to Net only implemented for one orientation
+    let snappedToNetWire =
+        match wire.InitialOrientation with
+        | Horizontal -> snapToNet model initialWire
+        | Vertical -> initialWire
 
     // Snapping to Net only implemented for one orientation
     let snappedToNetWire =
