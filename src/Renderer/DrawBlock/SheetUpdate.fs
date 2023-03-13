@@ -795,6 +795,8 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
                 printfn "Error: can't validate the two symbols selected to reorder ports"
                 model, Cmd.none   
     
+    | ToggleSnapToNet ->
+        model, (wireCmd BusWireT.ToggleSnapToNet)
 
     | ToggleNet _ | DoNothing | _ -> model, Cmd.none
     |> Optic.map fst_ postUpdateChecks

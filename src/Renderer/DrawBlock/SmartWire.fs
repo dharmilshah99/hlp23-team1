@@ -448,9 +448,10 @@ let smartAutoroute (model: Model) (wire: Wire) : Wire =
 
     // Snapping to Net only implemented for one orientation
     let snappedToNetWire =
-        match wire.InitialOrientation with
-        | Horizontal -> snapToNet model initialWire
-        | Vertical -> initialWire
+        match model.SnapToNet, wire.InitialOrientation with
+        | false, _
+        | _, Vertical -> initialWire
+        | true, Horizontal -> snapToNet model initialWire
 
     let intersectedBoxes = findWireSymbolIntersections model snappedToNetWire
 
