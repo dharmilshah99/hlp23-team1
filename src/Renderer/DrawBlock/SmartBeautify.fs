@@ -64,7 +64,7 @@ let reorderPairs (smartHelpers: ExternalSmartHelpers) (model: BusWireT.Model) =
     // Truncate pairs to reorder based on number of swaps.
     let pairs =
         getSymsToReorder
-        |> List.sortByDescending (fun (symA, symB) -> (symReorderPair model symA symB) |> optSwaps |> fst)
+        |> List.sortByDescending (fun (symA, symB) -> (symReorderPair model symA symB) |> countSwaps |> fst)
         |> List.truncate Constants.maxPairsToReorder
 
     (model, pairs)

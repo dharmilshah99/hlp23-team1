@@ -54,7 +54,7 @@ type PortInfo = { Port: Port; Orientation: Edge }
 type SymbolReorderPair =
     { Symbol: Symbol
       OtherSymbol: Symbol
-      Ports: Map<ComponentId, PortInfo list>
+      Ports: Map<ComponentId, PortInfo list list> // Group Ports by Net.
       DominantEdges: Map<ComponentId, Edge> }
 
 /// Finds the Dominant Edge of a Symbol.
@@ -151,10 +151,11 @@ let portsBtwnSyms (model: BusWireT.Model) (sym: Symbol) (otherSym: Symbol) =
 
     let portInfos (portsByNet: Port list list) =
         portsByNet
-        |> List.concat
-        |> List.map (fun port ->
-            { Port = port
-              Orientation = getPortOrientationFrmPortIdStr model.Symbol port.Id })
+        |> List.map (
+            List.map (fun port ->
+                { Port = port
+                  Orientation = getPortOrientationFrmPortIdStr model.Symbol port.Id })
+        )
 
     let symPorts, otherSymPorts =
         connsBtwnSyms model sym otherSym
@@ -174,7 +175,7 @@ let symReorderPair (model: BusWireT.Model) (sym: Symbol) (otherSym: Symbol) =
 
     let edgesBySym =
         [ portsBySym[sym.Id]; portsBySym[otherSym.Id] ]
-        |> List.map symDominantEdge
+        |> List.map (List.concat >> symDominantEdge)
         |> List.zip [ sym.Id; otherSym.Id ]
         |> Map.ofList
 
@@ -192,6 +193,7 @@ let reorderSymPorts (reorderPair: SymbolReorderPair) =
         let unwrppedPorts = unwrapSymPorts reorderPair.DominantEdges[sym.Id] dir sym
 
         reorderPair.Ports[sym.Id]
+        |> List.concat
         |> List.sortBy (fun port -> List.findIndex (fun id -> id = port.Port.Id) unwrppedPorts)
 
     let symPorts, otherSymPorts =
@@ -199,17 +201,38 @@ let reorderSymPorts (reorderPair: SymbolReorderPair) =
 
     [ (sym.Id, symPorts); (otherSym.Id, otherSymPorts) ] |> Map.ofList
 
-/// Find reordering that minimizes swaps.
-let optSwaps (reorderPair: SymbolReorderPair) =
+/// Normalizes Ports seen by sorting Nets in SymbolA by its unwrapped Ports.
+let normPorts (reorderPair: SymbolReorderPair) =
 
     let portsOrdered = reorderSymPorts reorderPair
-    let portsOrderedRev = portsOrdered |> Map.map (fun _ ports -> List.rev ports) // Use reorderSymPorts? But inefficient.
+    let symId, othId = reorderPair.Symbol.Id, reorderPair.OtherSymbol.Id
+
+    let symNormPorts, othSymNormPorts =
+        (reorderPair.Ports[symId], reorderPair.Ports[othId])
+        ||> List.zip
+        |> List.sortBy (fun (portsA, _) ->
+            portsA
+            |> List.map (fun port ->
+                portsOrdered[symId]
+                |> List.findIndex (fun port' -> port.Port.Id = port'.Port.Id))
+            |> List.min)
+        |> List.unzip
+
+    let ports =
+        [ symNormPorts; othSymNormPorts ] |> List.zip [ symId; othId ] |> Map.ofList
+
+    { reorderPair with Ports = ports }
+
+/// Count swaps. Used as a hueristic in Beautify.
+let countSwaps (reorderPair: SymbolReorderPair) =
+
+    let portsOrdered = reorderSymPorts reorderPair
 
     let swapsBySym (portsBySym: Map<ComponentId, PortInfo list>) =
         let symId, othId = reorderPair.Symbol.Id, reorderPair.OtherSymbol.Id
 
         let swapsOfSym (symId: ComponentId) =
-            (portsBySym[symId], reorderPair.Ports[symId])
+            (portsBySym[symId], List.concat reorderPair.Ports[symId])
             ||> List.zip
             |> List.map (fun (portA, portB) -> portA.Port.Id, portB.Port.Id)
             |> Map.ofList
@@ -229,15 +252,15 @@ let optSwaps (reorderPair: SymbolReorderPair) =
 
         (numSwaps reorderPair.Symbol) + (numSwaps reorderPair.OtherSymbol)
 
-    // Pick Swaps with fewest orderings.
-    [ swapsBySym portsOrdered; swapsBySym portsOrderedRev ]
-    |> List.map (fun swaps -> (countSwaps swaps, swaps)) // Keep as tuple to use count as Hueristic
-    |> List.minBy fst
+    // Count Swaps.
+    swapsBySym portsOrdered
+    |> function
+        | swaps -> countSwaps swaps, swaps
 
-// Swaps around portIds in symToOrder to minimize crossing of wires.
+/// Swaps around portIds in symToOrder to minimize crossing of wires.
 let swapPortIds (reorderPair: SymbolReorderPair) =
 
-    let swapsBySym = optSwaps reorderPair |> snd
+    let swapsBySym = reorderPair |> normPorts |> countSwaps |> snd
 
     let swapIds (sym: Symbol) =
         let swapsPortIds = swapsBySym[sym.Id]
@@ -246,8 +269,7 @@ let swapPortIds (reorderPair: SymbolReorderPair) =
             Map.tryFind id swapsPortIds |> Option.defaultWith (fun () -> id)
 
         let updateOrd =
-            let newOrder =
-                sym.PortMaps.Order |> Map.map (fun _ order -> List.map swapId order)
+            let newOrder = sym.PortMaps.Order |> Map.map (fun _ order -> List.map swapId order)
 
             set (portMaps_ >-> order_) newOrder
 
