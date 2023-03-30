@@ -215,7 +215,7 @@ let normPorts (reorderPair: SymbolReorderPair) =
             |> List.map (fun port ->
                 portsOrdered[symId]
                 |> List.findIndex (fun port' -> port.Port.Id = port'.Port.Id))
-            |> List.min)
+            |> List.min) // Note: No need to sort ports of nets.
         |> List.unzip
 
     let ports =
