@@ -52,7 +52,7 @@ let reorderPairs (smartHelpers: ExternalSmartHelpers) (model: BusWireT.Model) =
 
     // Count Swaps
     let numSwaps (symA: Symbol) (symB: Symbol) =
-        (symReorderPair model symA symB) |> normPorts |> countSwaps |> fst
+        (symReorderPair model symA symB) |> optSwaps |> fst
 
     // Gets Symbol Pairs to Beautify.
     let getSymsToReorder =
