@@ -224,24 +224,27 @@ let normPorts (reorderPair: SymbolReorderPair) =
     { reorderPair with Ports = ports }
 
 /// Count swaps. Used as a hueristic in Beautify.
-let countSwaps (reorderPair: SymbolReorderPair) =
+let optSwaps (reorderPair: SymbolReorderPair) =
+    let revReorderPair =
+        { reorderPair with
+            Symbol = reorderPair.OtherSymbol
+            OtherSymbol = reorderPair.Symbol }
 
-    let portsOrdered = reorderSymPorts reorderPair
+    let countSwaps (pair: SymbolReorderPair) =
+        let swapsBySym =
+            let portsBySym = reorderSymPorts pair
+            let symId, othId = pair.Symbol.Id, pair.OtherSymbol.Id
 
-    let swapsBySym (portsBySym: Map<ComponentId, PortInfo list>) =
-        let symId, othId = reorderPair.Symbol.Id, reorderPair.OtherSymbol.Id
+            let swapsOfSym (symId: ComponentId) =
+                (portsBySym[symId], List.concat pair.Ports[symId])
+                ||> List.zip
+                |> List.map (fun (portA, portB) -> portA.Port.Id, portB.Port.Id)
+                |> Map.ofList
 
-        let swapsOfSym (symId: ComponentId) =
-            (portsBySym[symId], List.concat reorderPair.Ports[symId])
-            ||> List.zip
-            |> List.map (fun (portA, portB) -> portA.Port.Id, portB.Port.Id)
+            [ swapsOfSym symId; swapsOfSym othId ]
+            |> List.zip [ symId; othId ]
             |> Map.ofList
 
-        [ swapsOfSym symId; swapsOfSym othId ]
-        |> List.zip [ symId; othId ]
-        |> Map.ofList
-
-    let countSwaps (swapsBySym: Map<ComponentId, Map<string, string>>) =
         let numSwaps (sym: Symbol) =
             let swaps', _ =
                 swapsBySym[sym.Id]
@@ -250,17 +253,17 @@ let countSwaps (reorderPair: SymbolReorderPair) =
 
             List.length swaps'
 
-        (numSwaps reorderPair.Symbol) + (numSwaps reorderPair.OtherSymbol)
+        (numSwaps pair.Symbol) + (numSwaps pair.OtherSymbol), swapsBySym
 
     // Count Swaps.
-    swapsBySym portsOrdered
-    |> function
-        | swaps -> countSwaps swaps, swaps
+    [ reorderPair; revReorderPair ]
+    |> List.map (fun pair -> (normPorts >> countSwaps) pair)
+    |> List.minBy fst
 
 /// Swaps around portIds in symToOrder to minimize crossing of wires.
 let swapPortIds (reorderPair: SymbolReorderPair) =
 
-    let swapsBySym = reorderPair |> normPorts |> countSwaps |> snd
+    let _, swapsBySym = optSwaps reorderPair
 
     let swapIds (sym: Symbol) =
         let swapsPortIds = swapsBySym[sym.Id]
