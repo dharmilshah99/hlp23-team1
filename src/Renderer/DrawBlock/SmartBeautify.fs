@@ -27,9 +27,9 @@ let optimizeSyms
 
     let symsToResize =
         model.Symbol.Symbols
-        |> Map.filter (fun id sym ->
+        |> Map.filter (fun _ sym ->
             match sym.Component.Type with
-            | Custom _ as customComp -> true
+            | Custom _ -> true
             | _ -> false)
         |> Map.toList
         |> List.map snd
@@ -50,6 +50,10 @@ let optimizeSyms
 /// Reorders Symbol.
 let reorderPairs (smartHelpers: ExternalSmartHelpers) (model: BusWireT.Model) =
 
+    // Count Swaps
+    let numSwaps (symA: Symbol) (symB: Symbol) =
+        (symReorderPair model symA symB) |> normPorts |> countSwaps |> fst
+
     // Gets Symbol Pairs to Beautify.
     let getSymsToReorder =
         let keepSymPair (symPair: Symbol * Symbol) =
@@ -64,7 +68,7 @@ let reorderPairs (smartHelpers: ExternalSmartHelpers) (model: BusWireT.Model) =
     // Truncate pairs to reorder based on number of swaps.
     let pairs =
         getSymsToReorder
-        |> List.sortByDescending (fun (symA, symB) -> (symReorderPair model symA symB) |> countSwaps |> fst)
+        |> List.filter (fun (symA, symB) -> 0 < numSwaps symA symB)
         |> List.truncate Constants.maxPairsToReorder
 
     (model, pairs)
